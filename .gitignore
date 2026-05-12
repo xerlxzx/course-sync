@@ -1,0 +1,9 @@
+.course_sync_token
+config.yaml
+__pycache__/
+*.pyc
+.DS_Store
+*_dump.json
+*.log
+.course_sync/
+*.local.md

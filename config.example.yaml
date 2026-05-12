@@ -1,0 +1,56 @@
+# course-sync configuration - EXAMPLE
+#
+# Copy this file to `config.yaml` and edit it with your own values.
+# `config.yaml` is gitignored so your personal settings stay local.
+#
+# This tool works with ANY university that uses Moodle 3.9+.
+# Common Australian examples:
+#   Macquarie University (iLearn):  https://ilearn.mq.edu.au
+#   UNSW (Moodle):                  https://moodle.telt.unsw.edu.au
+#   Monash University:              https://learning.monash.edu
+
+moodle:
+  # Base URL of your university's Moodle instance (no trailing slash).
+  # Replace with your own (see examples above).
+  base_url: https://your-moodle-site.edu
+  # Token from: Profile → Preferences → Security keys → "Moodle mobile web service"
+  # Store in .course_sync_token file (preferred) or set MOODLE_TOKEN env var.
+  token_file: .course_sync_token
+
+# Where to sync files to. Use an absolute path or ~ for your home directory.
+# Examples:
+#   /path/to/your/courses
+#   ~/Documents/Moodle
+output_dir: ~/Documents/Moodle
+
+# Which courses to sync. `code` is matched as a prefix against each enrolled
+# course's Moodle shortname (e.g. "COMP1010" matches "COMP1010-S1-2026").
+# `folder` is the local directory name created under `output_dir`.
+courses:
+  - code: EXAMPLE101
+    folder: EXAMPLE101
+  - code: EXAMPLE202
+    folder: EXAMPLE202
+
+# Optional: log file path (default: sync.log in repo root)
+log_file: sync.log
+
+# Optional: files matching these patterns go to a _misc/ subfolder
+# instead of the main section/lesson folder. Useful for templates,
+# logos, and other non-lesson content.
+#
+# Defaults already catch: logos, poster/academic/presentation/essay/
+# report templates, and Acknowledgement of Country imagery. You do
+# NOT need to set this to get clean syncs.
+#
+# Patterns are regex applied to the filename (basename only).
+# Add your own here to extend the defaults (they don't replace them):
+# misc_patterns:
+#   - "(?i)welcome.*image"
+#   - "(?i)cover[\\s_-]?page"
+
+# Optional: files matching these patterns are SKIPPED entirely
+# (never downloaded, never recorded). Use sparingly.
+# Patterns are regex applied to the filename (basename only).
+# skip_patterns:
+#   - "(?i)deprecated"
