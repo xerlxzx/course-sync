@@ -413,6 +413,26 @@ def save_hash_index(output_dir: Path, index: dict) -> None:
     os.replace(tmp_path, final_path)
 
 
+def forget_hash_path(index: dict, rel_path: str, keep_sha: str) -> None:
+    """
+    Drop rel_path from every hash entry except keep_sha.
+
+    Used when a file is replaced in place: the old content no longer lives at
+    that path, and leaving the claim behind would make tier-2 dedup point future
+    duplicates at a path that holds different bytes. Hash entries left with no
+    paths are removed outright.
+    """
+    files = index.get("files", {})
+    for sha, entry in list(files.items()):
+        if sha == keep_sha:
+            continue
+        paths = entry.get("paths", [])
+        if rel_path in paths:
+            entry["paths"] = [p for p in paths if p != rel_path]
+            if not entry["paths"]:
+                del files[sha]
+
+
 def record_hash_path(index: dict, sha256: str, size: int, rel_path: str) -> None:
     """Record (or extend) an entry in the hash index. rel_path is relative to output_dir."""
     files = index.setdefault("files", {})
@@ -432,6 +452,28 @@ def record_hash_path(index: dict, sha256: str, size: int, rel_path: str) -> None
 # File download with two-tier dedup
 # ---------------------------------------------------------------------------
 
+def _remote_looks_newer(
+    local_stat: os.stat_result,
+    remote_size: Optional[int],
+    remote_mtime: Optional[int],
+) -> bool:
+    """
+    Decide whether a file already on disk might be an outdated copy.
+
+    Moodle lets staff replace a file in place, keeping the same name and URL, so
+    "a file with this name exists" does not mean "we hold the current version".
+    A size mismatch is conclusive; a remote timestamp newer than our local file
+    means the server copy changed after we fetched it. When the caller has no
+    metadata (e.g. a link scraped out of label HTML) both args are None and we
+    keep the old behaviour of trusting the file on disk.
+    """
+    if remote_size is not None and remote_size != local_stat.st_size:
+        return True
+    if remote_mtime and remote_mtime > local_stat.st_mtime:
+        return True
+    return False
+
+
 def download_file(
     token: str,
     fileurl: str,
@@ -441,13 +483,17 @@ def download_file(
     downloaded_urls: Set[str],
     output_dir: Path,
     hash_index: dict,
+    remote_size: Optional[int] = None,
+    remote_mtime: Optional[int] = None,
 ) -> Tuple[Optional[str], Optional[str]]:
     """
     Download a file with two-tier dedup. Returns (outcome, dest_rel) where:
 
       outcome is one of:
-        "downloaded": bytes fetched and written to disk
-        "skipped":    already known via per-run URL set or already on disk
+        "downloaded": bytes fetched and written to disk (new file, or an
+                      in-place server update replacing an older local copy)
+        "skipped":    already known via per-run URL set, or the copy on disk is
+                      already current
         "dup":        fetched and hashed, but content already in index (not written)
         "dry":        dry-run preview only
         None:         could not proceed (e.g., empty filename)
@@ -465,10 +511,18 @@ def download_file(
     dest_path = dest / filename
     dest_rel = _rel_for_display(dest_path, output_dir)
 
-    # Tier 1b: same path already on disk
-    if dest_path.exists():
-        print(f"  [skip] {dest_rel}")
-        return "skipped", dest_rel
+    # Tier 1b: same path already on disk. Only skip if the remote metadata
+    # agrees we already hold the current version; an in-place re-upload keeps
+    # the same name and URL, so existence alone proves nothing.
+    local_stat = dest_path.stat() if dest_path.exists() else None
+    if local_stat is not None:
+        if not _remote_looks_newer(local_stat, remote_size, remote_mtime):
+            print(f"  [skip] {dest_rel}")
+            return "skipped", dest_rel
+        if dry_run:
+            print(f"  [dry-upd] {dest_rel}  (changed on server)")
+            return "dry", dest_rel
+        # Fall through to re-fetch so we can compare content, not just metadata.
 
     if dry_run:
         print(f"  [dry]  {dest_rel}")
@@ -482,6 +536,21 @@ def download_file(
     body = r.content
     sha256 = hashlib.sha256(body).hexdigest()
     size = len(body)
+
+    # Replacing a file we already hold: the metadata said it changed, so trust
+    # the bytes. This runs before tier 2 because the new content may coincide
+    # with some other file's hash, and we still want it written to this path.
+    if local_stat is not None:
+        if hashlib.sha256(dest_path.read_bytes()).hexdigest() == sha256:
+            print(f"  [skip] {dest_rel}  (metadata changed, content identical)")
+            return "skipped", dest_rel
+        print(f"  [upd]  {dest_rel}  ({local_stat.st_size} -> {size} bytes)")
+        dest.mkdir(parents=True, exist_ok=True)
+        with open(dest_path, "wb") as f:
+            f.write(body)
+        forget_hash_path(hash_index, dest_rel, sha256)
+        record_hash_path(hash_index, sha256, size, dest_rel)
+        return "downloaded", dest_rel
 
     # Tier 2: cross-run hash dedup
     existing = hash_index.get("files", {}).get(sha256)
@@ -644,7 +713,9 @@ def handle_contents_module(
             dest = section_dir / lesson if lesson else section_dir
 
         outcome, _dest_rel = download_file(
-            token, fileurl, filename, dest, dry_run, downloaded_urls, output_dir, hash_index
+            token, fileurl, filename, dest, dry_run, downloaded_urls, output_dir, hash_index,
+            remote_size=fc.get("filesize"),
+            remote_mtime=fc.get("timemodified"),
         )
         if outcome is None:
             continue
@@ -783,7 +854,9 @@ def handle_url_module(
             dest = section_dir / lesson if lesson else section_dir
 
         outcome, _dest_rel = download_file(
-            token, fileurl, filename, dest, dry_run, downloaded_urls, output_dir, hash_index
+            token, fileurl, filename, dest, dry_run, downloaded_urls, output_dir, hash_index,
+            remote_size=contents[0].get("filesize"),
+            remote_mtime=contents[0].get("timemodified"),
         )
         if outcome is None:
             return 0
