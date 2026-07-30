@@ -7,3 +7,4 @@ __pycache__/
 *.log
 .course_sync/
 *.local.md
+.venv/
