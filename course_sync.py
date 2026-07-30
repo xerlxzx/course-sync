@@ -486,10 +486,14 @@ def download_file(
     # Tier 2: cross-run hash dedup
     existing = hash_index.get("files", {}).get(sha256)
     if existing is not None:
-        first_path = existing.get("paths", ["?"])[0]
-        print(f"  [dup]  {dest_rel}  (same content as {first_path})")
-        record_hash_path(hash_index, sha256, size, dest_rel)
-        return "dup", dest_rel
+        existing_paths = existing.get("paths", [])
+        present_paths = [p for p in existing_paths if (output_dir / p).exists()]
+        if present_paths:
+            print(f"  [dup]  {dest_rel}  (same content as {present_paths[0]})")
+            record_hash_path(hash_index, sha256, size, dest_rel)
+            return "dup", dest_rel
+        # Every previously recorded copy is gone from disk (e.g. deleted by the
+        # user) - the index entry is stale, so fall through and write the file.
 
     # Write the file
     print(f"  [dl]   {dest_rel}")
