@@ -1,0 +1,6 @@
+# Dependencies for src/sway_sync.py. Install into its own venv, separate from
+# the one used for src/course_sync.py (see docs/SWAY_SYNC.md). From the repo root:
+#   python3 -m venv .venv-sway
+#   .venv-sway/bin/pip install -r requirements/sway_sync.txt
+#   .venv-sway/bin/playwright install chromium
+playwright>=1.61  # tested with 1.61.0 on Python 3.13

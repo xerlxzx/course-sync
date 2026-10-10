@@ -1,0 +1,22 @@
+# Secrets and personal config: never commit
+.course_sync_token
+config.yaml
+.sway-auth.json
+.sway-profile/
+
+# Tool state and raw API dumps (contain personal and forum data)
+.course_sync/
+.sway-state.json
+.sway-state.tmp
+audit/
+*_dump.json
+*.log
+
+# Virtual environments
+.venv*/
+
+# Local notes and OS/Python cruft
+*.local.md
+__pycache__/
+*.pyc
+.DS_Store
